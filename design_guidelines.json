@@ -1,0 +1,61 @@
+{
+  "app_name": "LogistiPro ID - Sistem Distribusi Barang",
+  "archetype": "Swiss & High-Contrast (Authority, Clarity, Truth) for Enterprise Admin & Logistics",
+  "theme": "Light Modern Enterprise with Sidebar",
+  "typography": {
+    "heading": "Manrope, sans-serif",
+    "body": "Inter, sans-serif",
+    "weights": [400, 500, 600, 700]
+  },
+  "colors": {
+    "primary": "#0F172A",
+    "primary_hover": "#1E293B",
+    "accent": "#2563EB",
+    "accent_hover": "#1D4ED8",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "text": "#0F172A",
+    "muted": "#64748B",
+    "border": "#E2E8F0",
+    "success": "#16A34A",
+    "warning": "#CA8A04",
+    "danger": "#DC2626"
+  },
+  "visual_enhancers": {
+    "borders": "1px solid #E2E8F0",
+    "shadows": "0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)",
+    "radius": "rounded-lg"
+  },
+  "component_path": "/app/backend/templates/",
+  "grids": {
+    "dashboard_grid": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6",
+    "form_grid": "grid grid-cols-1 md:grid-cols-2 gap-6"
+  },
+  "layouts": {
+    "sidebar_layout": "flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden",
+    "main_content": "flex-1 flex flex-col min-w-0 overflow-y-auto"
+  },
+  "motion": {
+    "transition": "transition-all duration-200 ease-in-out"
+  },
+  "accessibility": {
+    "aria_labels_required": true,
+    "contrast_ratio": "WCAG AA compliant (minimum 4.5:1)"
+  },
+  "media": {
+    "hero_image": "https://images.pexels.com/photos/38195854/pexels-photo-38195854.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+  },
+  "image_urls": [
+    {
+      "category": "warehouse_hero",
+      "description": "Organized warehouse shelving for inventory management",
+      "url": "https://images.pexels.com/photos/38195854/pexels-photo-38195854.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+    },
+    {
+      "category": "logistics_workers",
+      "description": "Workers handling distribution packages",
+      "url": "https://images.pexels.com/photos/4487383/pexels-photo-4487383.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+    }
+  ],
+  "instructions_to_main_agent": "Build a modular Django MVT Distribution Management System (Sistem Distribusi Barang) with two roles: Admin and User. Implement core workflows: Products (Barang), Stock & Warehouse (Stok), Requests (Permintaan), Approval/Rejection workflow (Persetujuan), Distribution & Status Tracking Timeline (Distribusi & Tracking), and internal notifications in Bahasa Indonesia. Use MySQL via environment variable. Include pre-populated demo accounts for Admin and User. Ensure modern enterprise light UI with sidebar and data-testid attributes on all interactive elements."
+}
