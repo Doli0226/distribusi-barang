@@ -154,3 +154,37 @@ class ActivityLog(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class ReportSchedule(models.Model):
+    FREQUENCIES = [("daily", "Harian"), ("weekly", "Mingguan"), ("monthly", "Bulanan")]
+    KINDS = [("stock", "Stok"), ("requests", "Permintaan"),
+             ("distributions", "Distribusi"), ("stock_transactions", "Mutasi Stok")]
+    FORMATS = [("csv", "CSV"), ("excel", "Excel"), ("pdf", "PDF")]
+    name = models.CharField(max_length=120)
+    kind = models.CharField(max_length=30, choices=KINDS)
+    format = models.CharField(max_length=10, choices=FORMATS, default="pdf")
+    frequency = models.CharField(max_length=10, choices=FREQUENCIES, default="monthly")
+    day_of_month = models.PositiveSmallIntegerField(default=1)
+    day_of_week = models.PositiveSmallIntegerField(default=0)
+    active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="report_schedules")
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    next_run_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class GeneratedReport(models.Model):
+    schedule = models.ForeignKey(ReportSchedule, on_delete=models.SET_NULL, null=True, blank=True, related_name="reports")
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="inbox_reports")
+    kind = models.CharField(max_length=30)
+    format = models.CharField(max_length=10)
+    filename = models.CharField(max_length=160)
+    content_type = models.CharField(max_length=80)
+    content_b64 = models.TextField()
+    size = models.PositiveIntegerField(default=0)
+    downloaded_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]

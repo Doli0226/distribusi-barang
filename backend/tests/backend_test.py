@@ -302,9 +302,10 @@ class TestWorkflow:
         assert req["total_quantity"] == 10
         req_id = req["id"]
 
-        # notification created for requester
+        # iteration_5 behaviour change (anti-duplicate): requester must NOT get a self-notif
         notif = user_c.get(f"{API}/notifications", timeout=30).json()
-        assert any(req["number"] in n["message"] for n in notif["items"]), "no notification for new request"
+        assert not any(req["number"] in n["message"] for n in notif["items"]), \
+            "requester received a self-notif for its own new request"
 
         # request detail + timeline
         d = user_c.get(f"{API}/requests/{req_id}", timeout=30)

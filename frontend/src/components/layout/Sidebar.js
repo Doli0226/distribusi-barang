@@ -1,4 +1,4 @@
-import { Bell, Boxes, ChevronDown, ClipboardList, FileBarChart, History, LayoutDashboard, ListChecks, MapPinned, Package, Settings, Truck, Users, Warehouse } from "lucide-react";
+import { Bell, Boxes, ChevronDown, ClipboardList, Clock, FileBarChart, History, Inbox, LayoutDashboard, ListChecks, MapPinned, Package, Settings, Truck, Users, Warehouse } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 
@@ -15,6 +15,8 @@ const adminNav = [
   { to: "/penerima", label: "Penerima", icon: Users },
   { to: "/pengguna", label: "Pengguna", icon: Users },
   { to: "/laporan", label: "Laporan", icon: FileBarChart },
+  { to: "/jadwal-laporan", label: "Jadwal Laporan", icon: Clock },
+  { to: "/inbox-laporan", label: "Inbox Laporan", icon: Inbox },
   { to: "/aktivitas", label: "Aktivitas", icon: History },
   { to: "/notifikasi", label: "Notifikasi", icon: Bell },
 ];

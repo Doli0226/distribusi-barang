@@ -18,6 +18,8 @@ const pageTitles = {
   penerima: "Data penerima",
   pengguna: "Manajemen pengguna",
   laporan: "Laporan operasional",
+  "jadwal-laporan": "Jadwal laporan otomatis",
+  "inbox-laporan": "Inbox laporan",
   aktivitas: "Audit trail",
   notifikasi: "Notifikasi",
   profil: "Profil pengguna",

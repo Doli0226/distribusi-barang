@@ -1,0 +1,67 @@
+{
+  "summary": "Iteration 5 testing of the 2 new features: (1) Anti-duplicate self notifications, (2) Report schedules + 'Inbox Laporan'. BACKEND: new suite /app/backend/tests/test_iter5_features.py (20 cases) -> 17 pass / 3 fail. Full backend suite (backend_test.py + test_regression_iter3.py + test_iter5_features.py = 124 cases) -> serial re-run of the older suites is clean (74/74 after fixing 1 stale assertion); only the 3 iter5 failures are real. VERIFIED anti-ganda: user POST /api/requests -> requester unread count unchanged, admin unread +1 with title 'Permintaan baru'; admin reject/approve of another user's request -> admin unread unchanged, requester +1; admin low-stock stock_transaction (adjust to 1, below minimum_stock 20) -> admin unread unchanged; admin distribution create + status change on someone else's request -> admin unchanged, requester +1. VERIFIED schedules: POST /api/report-schedules sets next_run_at (08:00 rule, monthly/weekly/daily), GET lists with next_run_at, POST /run creates GeneratedReport + notifies owner + updates last_run_at/next_run_at, GET /api/generated-reports is owner-scoped with unread = not-yet-downloaded count, download returns correct content-type + Content-Disposition for csv/xlsx/pdf and sets downloaded_at, PUT recomputes next_run_at and toggles active, DELETE removes, user role gets 403 on all /report-schedules endpoints, anonymous blocked, missing name -> 400. FRONTEND (Playwright, 1920x1080, public URL): ALL requested flows PASS. Admin sidebar shows nav-jadwal-laporan + nav-inbox-laporan; /jadwal-laporan table has exactly NAMA/JENIS/FORMAT/FREKUENSI/TERAKHIR/BERIKUTNYA/STATUS + actions; '＋ Buat jadwal' modal works (sch-dom shown for monthly, replaced by sch-dow for weekly), saved row appears ('TEST_UI Jadwal Mingguan | Laporan Permintaan | CSV | Mingguan Rabu jam 08.00 | - | 26 Aug 2026 08:00 | Aktif'); 'Jalankan' shows toast '<file> siap di inbox' (visible at ~1.5s) and TERAKHIR fills in; /inbox-laporan cards show filename+schedule_name+format+size+date with 'Baru' pill, Unduh downloads TEST_UI_Jadwal_Mingguan-20260825-0546.csv and the 'Baru' badge disappears; Edit/Nonaktifkan/Hapus all work; 0 error elements. User role: no new menus, direct /jadwal-laporan and /inbox-laporan both redirect to /dashboard. Anti-ganda UI: after the user creates a request via modal only the local success toast appears; no 'Permintaan baru' toast during a 12s polling window and no such entry on /notifikasi. Cross-session: budi creates a request -> admin session receives toast 'Permintaan baru — budi@logistipro.id membuat REQ-2026-0142' while budi receives none.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/requests/<id>/action, POST /api/distributions, POST /api/distributions/<id>/status",
+        "issue": "Anti-ganda leak when actor == requester: admin created its own request then called action 'process' -> its own unread count went 215 -> 216. notify(req.requester, ...) has no actor guard (views.py lines 714/719/725/785/833). Same applies to any user acting on a request they own. Fix: skip notify when req.requester_id == request.user.id."
+      },
+      {
+        "endpoint": "POST /api/report-schedules/<id>/run, PUT|DELETE /api/report-schedules/<id>, GET /api/generated-reports/<id>/download",
+        "issue": "Missing/foreign IDs return 500 instead of 404. catch_errors (views.py L58-62) does not list ReportSchedule.DoesNotExist / GeneratedReport.DoesNotExist. Repro: admin POST /api/report-schedules/999999/run -> 500; user GET /api/generated-reports/<admin_report_id>/download -> 500 (no data leak, but wrong status + traceback in backend.err.log)."
+      },
+      {
+        "endpoint": "any write endpoint under concurrency",
+        "issue": "sqlite3.OperationalError: 'database is locked' -> 500 on POST /api/requests and /api/requests/<id>/action when 2 clients write concurrently (seen during pytest -n 2). No WAL mode / timeout configured on the SQLite connection."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Jadwal Laporan -> Jalankan",
+        "issue": "Minor UX inconsistency with the anti-ganda rule: the actor who clicks 'Jalankan' gets BOTH the local toast '<file> siap di inbox' and, a few seconds later, the polled notification toast 'Laporan siap diunduh — ... telah dibuat.' for the notification the backend created for the same actor (views.py _run_schedule -> notify(schedule.created_by)). Consider skipping the notification when the run is manual/triggered by the owner.",
+        "affected_selectors": ["[data-testid^=\"run-schedule-\"]"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Inbox laporan",
+        "issues": ["No pagination/grouping: the list already renders 11+ cards (mostly leftover TEST_ files from earlier curl/seed testing) with no date grouping or 'mark all downloaded' action; backend caps at 100 with no paging."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter5_features.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results_iter5.xml"
+  ],
+  "action_items": [
+    "Add actor guard around notify(req.requester, ...) in request_action_api, distributions_api and distribution_status_api so a user acting on their own request gets no self-notif.",
+    "Add ReportSchedule.DoesNotExist and GeneratedReport.DoesNotExist to catch_errors so bad/foreign IDs return 404 instead of 500.",
+    "Consider SQLite WAL + timeout (or accept) to avoid 'database is locked' 500s under concurrent writes.",
+    "Optional: suppress the owner 'Laporan siap diunduh' notification for manual Run Now to stay consistent with the anti-duplicate feature.",
+    "Optional cleanup: delete the leftover TEST_* generated reports from the admin inbox before demo/handoff.",
+    "Optional: /api/report-schedules GET returns every admin's schedules and any admin can Run someone else's schedule (report lands in the other admin's inbox) - confirm this is the intended sharing model."
+  ],
+  "critical_code_review_comments": [
+    "distribution/views.py is 1153 lines - split into modules (auth, inventory, requests, distributions, reports/schedules).",
+    "notify(req.requester, ...) is repeated 5x with no actor check - extract a helper notify_unless_actor(request.user, target, ...) to keep the anti-ganda rule DRY and consistent.",
+    "catch_errors whitelists model DoesNotExist classes one by one; use ObjectDoesNotExist to avoid missing future models (already missed the 2 new ones).",
+    "GeneratedReport stores the whole file as base64 TEXT in the DB with no retention/pruning - inbox will grow unbounded (already 11 rows after light testing).",
+    "compute_next_run silently clamps day_of_month to 28 and does not validate 1-28 input server-side (UI enforces min/max only)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter5_features.py",
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "85% (17/20 new cases; 3 failures = 2 distinct defects)", "frontend": "100% (all 7 requested UI/flow checks pass)"},
+  "seed_data_creation": "Created and deleted TEST_ report schedules (stock/requests, csv/excel/pdf) plus TEST_UI schedules via UI; several TEST_* GeneratedReport rows remain in admin's inbox. Created a few TEST_ ItemRequests/distributions from user@ and budi@ sessions; stock row 1 was temporarily adjusted to 1 and restored to 51.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@logistipro.id/admin123, user@logistipro.id/user123, budi@logistipro.id/user123 (all valid). NOTE: login submit button is not type=submit - use get_by_text('Masuk ke Dashboard').",
+  "context_for_next_testing_agent": "Run backend tests with `cd /app/backend && python -m pytest tests/ -n 0 -q` (serial) - parallel runs (-n 2 from pytest.ini) trigger SQLite 'database is locked' 500s and produce false failures in backend_test.py/test_regression_iter3.py. Remaining known failures in tests/test_iter5_features.py: test_admin_own_request_action_no_self_notif (self-notif when actor==requester), test_missing_ids_return_404_not_500 and test_report_isolation_other_user (500 instead of 404 for missing/foreign schedule & report ids). Frontend for both new pages is fully verified; re-verify only the 2 backend fixes.",
+  "rca_of_the_issue": "(1) Anti-ganda was implemented only where notifications fan out to admins (notify_admins exclude_user) and for the low-stock loop (.exclude(pk=request.user.pk)), but the direct notify(req.requester, ...) calls in request_action_api / distributions_api / distribution_status_api have no actor comparison, so an admin (or any user) acting on a request they themselves created still notifies themselves. (2) The new report-schedule/generated-report views rely on the shared catch_errors decorator to map DoesNotExist -> 404, but that decorator hardcodes an explicit tuple of model exception classes that was never extended for ReportSchedule/GeneratedReport, so ObjectDoesNotExist falls into the generic `except Exception` branch and returns 500."
+}

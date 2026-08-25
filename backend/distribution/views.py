@@ -13,8 +13,9 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import (ActivityLog, Category, Distribution, DistributionStatusHistory, ItemRequest, Notification,
-                     Product, Profile, Recipient, RequestItem, StockTransaction, Vehicle, Warehouse, WarehouseStock)
+from .models import (ActivityLog, Category, Distribution, DistributionStatusHistory, GeneratedReport, ItemRequest,
+                     Notification, Product, Profile, Recipient, ReportSchedule, RequestItem, StockTransaction,
+                     Vehicle, Warehouse, WarehouseStock)
 
 
 # ---------- helpers ----------
@@ -57,7 +58,7 @@ def catch_errors(view):
         except (Category.DoesNotExist, Product.DoesNotExist, Warehouse.DoesNotExist,
                 WarehouseStock.DoesNotExist, Recipient.DoesNotExist, Vehicle.DoesNotExist,
                 ItemRequest.DoesNotExist, Distribution.DoesNotExist, User.DoesNotExist,
-                Notification.DoesNotExist):
+                Notification.DoesNotExist, ReportSchedule.DoesNotExist, GeneratedReport.DoesNotExist):
             return JsonResponse({"detail": "Data tidak ditemukan"}, status=404)
         except KeyError as e:
             return JsonResponse({"detail": f"Field wajib hilang: {e.args[0]}"}, status=400)
@@ -115,8 +116,11 @@ def user_data(user):
     }
 
 
-def notify(user, title, message, kind="info", link=""):
-    Notification.objects.create(user=user, title=title, message=message, kind=kind, link=link)
+def notify(user, title, message, kind="info", link="", actor=None):
+    """Create notification for user, unless user IS the actor (anti self-notif)."""
+    if actor is not None and user is not None and user.pk == actor.pk:
+        return None
+    return Notification.objects.create(user=user, title=title, message=message, kind=kind, link=link)
 
 
 def notify_admins(title, message, kind="info", link="", exclude_user=None):
@@ -478,7 +482,7 @@ def stock_transaction_api(request):
         log_activity(request, f"stock_{ttype}", "stock", entity_id=stock.id,
                      detail=f"{stock.product.name} qty={qty}")
         if stock.quantity < stock.product.minimum_stock:
-            for admin in User.objects.filter(is_superuser=True):
+            for admin in User.objects.filter(Q(is_superuser=True) | Q(is_staff=True) | Q(profile__role="admin")).exclude(pk=request.user.pk).distinct():
                 notify(admin, "Stok rendah",
                         f"{stock.product.name} di {stock.warehouse.name} tersisa {stock.quantity}", "warning")
     return JsonResponse({"stock_id": stock.id, "quantity": stock.quantity, "transaction_id": tx.id})
@@ -642,8 +646,9 @@ def requests_api(request):
                                                   note=data.get("note", ""))
                 for it in data["items"]:
                     RequestItem.objects.create(request=req, product_id=it["product_id"], quantity=it["quantity"])
-                notify(request.user, "Permintaan dibuat", f"{number} berhasil dibuat", "success", f"/permintaan/{req.id}")
-                notify_admins("Permintaan baru", f"{request.user.username} membuat {number}", "info", f"/permintaan/{req.id}")
+                # No self-notif — user just performed this action
+                notify_admins("Permintaan baru", f"{request.user.username} membuat {number}", "info",
+                               f"/permintaan/{req.id}", exclude_user=request.user)
                 log_activity(request, "create", "request", entity_id=req.id, detail=number)
         except (KeyError, Warehouse.DoesNotExist, Recipient.DoesNotExist, Product.DoesNotExist) as e:
             return JsonResponse({"detail": f"Data tidak lengkap atau tidak valid: {e}"}, status=400)
@@ -709,18 +714,18 @@ def request_action_api(request, pk):
                                                  note=f"Approval {req.number}", created_by=request.user)
             req.status = "approved"; req.approved_by = request.user; req.approved_at = timezone.now()
             req.save(update_fields=["status", "approved_by", "approved_at"])
-            notify(req.requester, "Permintaan disetujui", f"{req.number} telah disetujui.", "success", f"/permintaan/{req.id}")
+            notify(req.requester, "Permintaan disetujui", f"{req.number} telah disetujui.", "success", f"/permintaan/{req.id}", actor=request.user)
             log_activity(request, "approve", "request", entity_id=req.id, detail=req.number)
             message = "Permintaan disetujui"
         elif action == "process":
             req.status = "processed"; req.save(update_fields=["status"])
-            notify(req.requester, "Permintaan diproses", f"{req.number} sedang diproses.", "info")
+            notify(req.requester, "Permintaan diproses", f"{req.number} sedang diproses.", "info", actor=request.user)
             log_activity(request, "process", "request", entity_id=req.id, detail=req.number)
             message = "Permintaan diproses"
         elif action == "reject":
             req.status = "rejected"; req.rejection_reason = data.get("reason", "Tidak disetujui")
             req.save(update_fields=["status", "rejection_reason"])
-            notify(req.requester, "Permintaan ditolak", f"{req.number}: {req.rejection_reason}", "danger")
+            notify(req.requester, "Permintaan ditolak", f"{req.number}: {req.rejection_reason}", "danger", actor=request.user)
             log_activity(request, "reject", "request", entity_id=req.id, detail=req.number)
             message = "Permintaan ditolak"
         else:
@@ -780,8 +785,7 @@ def distributions_api(request):
             req.status = "prepared"; req.save(update_fields=["status"])
             if d.vehicle:
                 d.vehicle.status = "in_use"; d.vehicle.save(update_fields=["status"])
-            notify(req.requester, "Barang disiapkan", f"{number} dibuat dari {req.number}", "info",
-                    f"/distribusi/{d.id}")
+            notify(req.requester, "Barang disiapkan", f"{number} dibuat dari {req.number}", "info", f"/distribusi/{d.id}", actor=request.user)
             log_activity(request, "create", "distribution", entity_id=d.id, detail=number)
     except IntegrityError:
         return JsonResponse({"detail": "Nomor distribusi bentrok, coba lagi"}, status=409)
@@ -829,7 +833,7 @@ def distribution_status_api(request, pk):
                        "prepared": "prepared"}.get(new_status, req.status)
         req.save(update_fields=["status"])
         notify(req.requester, label_map.get(new_status, new_status),
-                f"{d.number}: {label_map.get(new_status, new_status)}", "info", f"/distribusi/{d.id}")
+                f"{d.number}: {label_map.get(new_status, new_status)}", "info", f"/distribusi/{d.id}", actor=request.user)
         log_activity(request, "update_status", "distribution", entity_id=d.id,
                      detail=f"{d.number}: {new_status}")
     return JsonResponse({"number": d.number, "status": d.status})
@@ -948,30 +952,26 @@ def _dataset(kind, ids=None):
     return "Laporan", [["Data"]]
 
 
-@admin_required
-@catch_errors
-def report_export_api(request, kind, fmt):
-    ids_param = request.GET.get("ids")
-    if ids_param is None:
-        ids = None
-    else:
-        ids = [int(x) for x in ids_param.split(",") if x.strip().isdigit()]
+CONTENT_TYPES = {
+    "csv": "text/csv",
+    "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pdf": "application/pdf",
+}
+EXTENSIONS = {"csv": "csv", "excel": "xlsx", "pdf": "pdf"}
+
+
+def render_report(kind, fmt, ids=None):
+    """Return (filename, content_type, bytes) for the given report."""
     title, rows = _dataset(kind, ids=ids)
     if fmt == "csv":
-        buf = io.StringIO()
-        w = csv.writer(buf); w.writerows(rows)
-        resp = HttpResponse(buf.getvalue(), content_type="text/csv")
-        resp["Content-Disposition"] = f'attachment; filename="{kind}.csv"'
-        return resp
+        buf = io.StringIO(); csv.writer(buf).writerows(rows)
+        return f"{kind}.csv", CONTENT_TYPES["csv"], buf.getvalue().encode("utf-8")
     if fmt == "excel":
         import openpyxl
         wb = openpyxl.Workbook(); ws = wb.active; ws.title = title[:30]
         for r in rows: ws.append(r)
-        buf = io.BytesIO(); wb.save(buf); buf.seek(0)
-        resp = HttpResponse(buf.read(),
-                            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        resp["Content-Disposition"] = f'attachment; filename="{kind}.xlsx"'
-        return resp
+        buf = io.BytesIO(); wb.save(buf)
+        return f"{kind}.xlsx", CONTENT_TYPES["excel"], buf.getvalue()
     if fmt == "pdf":
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4, landscape
@@ -979,10 +979,10 @@ def report_export_api(request, kind, fmt):
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
         buf = io.BytesIO()
         doc = SimpleDocTemplate(buf, pagesize=landscape(A4))
-        styles = getSampleStyleSheet(); story = [Paragraph(f"<b>{title}</b>", styles["Title"]),
-                                                    Paragraph(datetime.now().strftime("Dicetak %d %B %Y %H:%M"),
-                                                              styles["Normal"]),
-                                                    Spacer(1, 12)]
+        styles = getSampleStyleSheet()
+        story = [Paragraph(f"<b>{title}</b>", styles["Title"]),
+                 Paragraph(datetime.now().strftime("Dicetak %d %B %Y %H:%M"), styles["Normal"]),
+                 Spacer(1, 12)]
         t = Table([[str(c) for c in row] for row in rows], repeatRows=1)
         t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
                                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -991,11 +991,162 @@ def report_export_api(request, kind, fmt):
                                 ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
                                 ("ROWBACKGROUNDS", (0, 1), (-1, -1),
                                  [colors.white, colors.HexColor("#F8FAFC")])]))
-        story.append(t); doc.build(story); buf.seek(0)
-        resp = HttpResponse(buf.read(), content_type="application/pdf")
-        resp["Content-Disposition"] = f'attachment; filename="{kind}.pdf"'
-        return resp
-    return JsonResponse({"detail": "Format tidak didukung"}, status=400)
+        story.append(t); doc.build(story)
+        return f"{kind}.pdf", CONTENT_TYPES["pdf"], buf.getvalue()
+    raise ValueError(f"Format tidak didukung: {fmt}")
+
+
+@admin_required
+@catch_errors
+def report_export_api(request, kind, fmt):
+    ids_param = request.GET.get("ids")
+    ids = None if ids_param is None else [int(x) for x in ids_param.split(",") if x.strip().isdigit()]
+    filename, ctype, data = render_report(kind, fmt, ids=ids)
+    resp = HttpResponse(data, content_type=ctype)
+    resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return resp
+
+
+# ---------- REPORT SCHEDULES & INBOX ----------
+def compute_next_run(freq, day_of_month=1, day_of_week=0, base=None):
+    """Compute next run datetime at 08:00 for a schedule."""
+    now = base or timezone.now()
+    at = lambda d: d.replace(hour=8, minute=0, second=0, microsecond=0)
+    if freq == "daily":
+        return at(now + timezone.timedelta(days=1))
+    if freq == "weekly":
+        ahead = (int(day_of_week) - now.weekday()) % 7
+        if ahead == 0: ahead = 7
+        return at(now + timezone.timedelta(days=ahead))
+    if freq == "monthly":
+        dom = max(1, min(int(day_of_month), 28))
+        if now.day < dom:
+            return at(now.replace(day=dom))
+        year = now.year + (1 if now.month == 12 else 0)
+        month = 1 if now.month == 12 else now.month + 1
+        return at(now.replace(year=year, month=month, day=dom))
+    return at(now + timezone.timedelta(days=1))
+
+
+def _run_schedule(schedule, actor=None):
+    """Generate report, store in GeneratedReport, notify owner. Return the created record."""
+    filename, ctype, data = render_report(schedule.kind, schedule.format)
+    import base64
+    stamp = timezone.now().strftime("%Y%m%d-%H%M")
+    fname = f"{schedule.name.replace(' ', '_')}-{stamp}.{EXTENSIONS[schedule.format]}"
+    gr = GeneratedReport.objects.create(
+        schedule=schedule, owner=schedule.created_by,
+        kind=schedule.kind, format=schedule.format, filename=fname,
+        content_type=ctype, content_b64=base64.b64encode(data).decode("ascii"),
+        size=len(data),
+    )
+    schedule.last_run_at = timezone.now()
+    schedule.next_run_at = compute_next_run(schedule.frequency, schedule.day_of_month,
+                                             schedule.day_of_week, base=timezone.now())
+    schedule.save(update_fields=["last_run_at", "next_run_at"])
+    notify(schedule.created_by, "Laporan siap diunduh",
+            f"{schedule.name} ({schedule.format.upper()}) telah dibuat.",
+            "success", "/inbox-laporan", actor=actor)
+    return gr
+
+
+def _run_due():
+    """Opportunistically run any schedule whose next_run_at has passed."""
+    now = timezone.now()
+    for s in ReportSchedule.objects.filter(active=True, next_run_at__lte=now).select_related("created_by"):
+        try: _run_schedule(s)
+        except Exception: import logging; logging.getLogger("distribution").exception("schedule run failed")
+
+
+def schedule_json(s):
+    return {"id": s.id, "name": s.name, "kind": s.kind, "format": s.format,
+            "frequency": s.frequency, "day_of_month": s.day_of_month, "day_of_week": s.day_of_week,
+            "active": s.active,
+            "last_run_at": s.last_run_at.strftime("%d %b %Y %H:%M") if s.last_run_at else "",
+            "next_run_at": s.next_run_at.strftime("%d %b %Y %H:%M"),
+            "created_at": s.created_at.strftime("%d %b %Y %H:%M"),
+            "created_by": s.created_by.username}
+
+
+@csrf_exempt
+@admin_required
+@catch_errors
+def report_schedules_api(request):
+    if request.method == "GET":
+        _run_due()  # opportunistic scheduler
+        qs = ReportSchedule.objects.select_related("created_by").order_by("-created_at")
+        return JsonResponse({"items": [schedule_json(s) for s in qs]})
+    if request.method == "POST":
+        data = payload(request)
+        freq = data.get("frequency", "monthly")
+        next_run = compute_next_run(freq, data.get("day_of_month", 1), data.get("day_of_week", 0))
+        s = ReportSchedule.objects.create(
+            name=data["name"], kind=data["kind"], format=data.get("format", "pdf"),
+            frequency=freq, day_of_month=int(data.get("day_of_month", 1)),
+            day_of_week=int(data.get("day_of_week", 0)), active=data.get("active", True),
+            created_by=request.user, next_run_at=next_run,
+        )
+        log_activity(request, "create", "schedule", entity_id=s.id, detail=s.name)
+        return JsonResponse(schedule_json(s), status=201)
+    return JsonResponse({"detail": "Method tidak didukung"}, status=405)
+
+
+@csrf_exempt
+@admin_required
+@catch_errors
+def report_schedule_detail_api(request, pk):
+    s = ReportSchedule.objects.get(pk=pk)
+    if request.method == "PUT":
+        data = payload(request)
+        for f in ["name", "kind", "format", "frequency"]:
+            if f in data: setattr(s, f, data[f])
+        if "active" in data: s.active = data["active"]
+        if "day_of_month" in data: s.day_of_month = int(data["day_of_month"])
+        if "day_of_week" in data: s.day_of_week = int(data["day_of_week"])
+        s.next_run_at = compute_next_run(s.frequency, s.day_of_month, s.day_of_week)
+        s.save()
+        log_activity(request, "update", "schedule", entity_id=s.id, detail=s.name)
+        return JsonResponse(schedule_json(s))
+    if request.method == "DELETE":
+        s.delete()
+        log_activity(request, "delete", "schedule", entity_id=pk)
+        return JsonResponse({"message": "Jadwal dihapus"})
+    return JsonResponse({"detail": "Method tidak didukung"}, status=405)
+
+
+@csrf_exempt
+@admin_required
+@catch_errors
+@require_http_methods(["POST"])
+def report_schedule_run_api(request, pk):
+    s = ReportSchedule.objects.get(pk=pk)
+    gr = _run_schedule(s, actor=request.user)
+    log_activity(request, "run", "schedule", entity_id=s.id, detail=s.name)
+    return JsonResponse({"message": "Laporan dibuat", "generated_report_id": gr.id,
+                          "filename": gr.filename, "next_run_at": s.next_run_at.strftime("%d %b %Y %H:%M")})
+
+
+@auth_required
+@catch_errors
+def generated_reports_api(request):
+    qs = GeneratedReport.objects.filter(owner=request.user).select_related("schedule").order_by("-created_at")[:100]
+    items = [{"id": r.id, "filename": r.filename, "kind": r.kind, "format": r.format,
+               "size": r.size, "schedule_name": r.schedule.name if r.schedule else "Manual",
+               "downloaded": bool(r.downloaded_at),
+               "created_at": r.created_at.strftime("%d %b %Y %H:%M")} for r in qs]
+    return JsonResponse({"items": items, "unread": sum(1 for r in qs if not r.downloaded_at)})
+
+
+@auth_required
+@catch_errors
+def generated_report_download_api(request, pk):
+    import base64
+    r = GeneratedReport.objects.get(pk=pk, owner=request.user)
+    if not r.downloaded_at:
+        r.downloaded_at = timezone.now(); r.save(update_fields=["downloaded_at"])
+    resp = HttpResponse(base64.b64decode(r.content_b64), content_type=r.content_type)
+    resp["Content-Disposition"] = f'attachment; filename="{r.filename}"'
+    return resp
 
 
 # ---------- ROOT ----------

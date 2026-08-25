@@ -65,6 +65,11 @@ Bangun Web-Based Distribution Management System (Sistem Distribusi Barang) profe
 - ✅ Foto bukti kirim: Distribution.arrival_photo (base64 data URL), modal upload saat transisi ke "arrived", tampilan foto di detail
 - ✅ Ekspor terpilih: checkbox di /permintaan (admin) + bulk export CSV/Excel/PDF via `?ids=1,2,3`
 
+## New Features (2026-08-25 iteration 5)
+- ✅ Notif Anti-Ganda: helper `notify(user, ..., actor=request.user)` mem-block self-notif. Diterapkan di requests, approve/reject, distributions, distribution status, dan manual run report schedule
+- ✅ Jadwal Otomatis Laporan (Inbox Internal): model `ReportSchedule` (daily/weekly/monthly, day_of_month/day_of_week, next_run_at otomatis) + `GeneratedReport` (base64 content). Endpoint CRUD + `/run` (manual). Opportunistic scheduler jalan pada tiap GET /report-schedules. Frontend: halaman `/jadwal-laporan` (CRUD + Run Now + toggle aktif) dan `/inbox-laporan` (card list + Unduh). Notifikasi "Laporan siap diunduh" mengarah ke inbox
+- ✅ Fixed: ReportSchedule/GeneratedReport DoesNotExist -> 404 via catch_errors
+
 ## Prioritized Backlog
 ### P1 (nice-to-have polish)
 - Real MySQL/PostgreSQL migration for production

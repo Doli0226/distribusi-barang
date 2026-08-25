@@ -67,4 +67,9 @@ urlpatterns = [
     # Reports
     path("reports/summary", views.reports_summary_api),
     path("reports/<str:kind>/export/<str:fmt>", views.report_export_api),
+    path("report-schedules", views.report_schedules_api),
+    path("report-schedules/<int:pk>", views.report_schedule_detail_api),
+    path("report-schedules/<int:pk>/run", views.report_schedule_run_api),
+    path("generated-reports", views.generated_reports_api),
+    path("generated-reports/<int:pk>/download", views.generated_report_download_api),
 ]

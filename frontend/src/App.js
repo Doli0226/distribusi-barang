@@ -27,6 +27,8 @@ import Tracking from "@/pages/Tracking";
 import Notifications from "@/pages/Notifications";
 import Activities from "@/pages/Activities";
 import Reports from "@/pages/Reports";
+import ReportSchedules from "@/pages/ReportSchedules";
+import ReportInbox from "@/pages/ReportInbox";
 import Users from "@/pages/Users";
 import Profile from "@/pages/Profile";
 
@@ -64,6 +66,8 @@ function ProtectedShell() {
             <Route path="/notifikasi" element={<Notifications />} />
             <Route path="/aktivitas" element={<AdminRoute><Activities /></AdminRoute>} />
             <Route path="/laporan" element={<AdminRoute><Reports /></AdminRoute>} />
+            <Route path="/jadwal-laporan" element={<AdminRoute><ReportSchedules /></AdminRoute>} />
+            <Route path="/inbox-laporan" element={<AdminRoute><ReportInbox /></AdminRoute>} />
             <Route path="/pengguna" element={<AdminRoute><Users /></AdminRoute>} />
             <Route path="/profil" element={<Profile />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
