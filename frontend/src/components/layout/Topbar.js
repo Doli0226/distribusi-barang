@@ -30,12 +30,27 @@ export default function Topbar({ onToggleMobile, mobileOpen }) {
   const location = useLocation();
   const [notifs, setNotifs] = useState({ items: [], unread: 0 });
   const [open, setOpen] = useState(false);
+  const knownIds = useRef(new Set());
+  const bootstrapped = useRef(false);
   const ref = useRef();
 
   const load = async () => {
-    try { const r = await api.get("/notifications"); setNotifs(r.data); } catch {}
+    try {
+      const r = await api.get("/notifications");
+      // Detect new notifications since last load and show toast (realtime UX)
+      if (bootstrapped.current) {
+        for (const n of r.data.items) {
+          if (!knownIds.current.has(n.id) && !n.read) {
+            toast.show(`${n.title} — ${n.message}`, n.kind === "warning" ? "warning" : n.kind === "danger" ? "danger" : "success");
+          }
+        }
+      }
+      knownIds.current = new Set(r.data.items.map((n) => n.id));
+      bootstrapped.current = true;
+      setNotifs(r.data);
+    } catch {}
   };
-  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [location.pathname]);
+  useEffect(() => { load(); const t = setInterval(load, 4000); return () => clearInterval(t); }, [location.pathname]);
   useEffect(() => {
     const h = () => load();
     window.addEventListener("notifs:refresh", h);

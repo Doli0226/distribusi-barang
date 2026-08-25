@@ -26,6 +26,8 @@ TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "DIR
               "OPTIONS": {"context_processors": ["django.template.context_processors.request", "django.contrib.auth.context_processors.auth", "django.contrib.messages.context_processors.messages"]}}]
 DB_ENGINE = os.environ.get("DB_ENGINE", "django.db.backends.sqlite3")
 DATABASES = {"default": {"ENGINE": DB_ENGINE, "NAME": os.environ.get("DB_NAME", str(BASE_DIR / "distribution.sqlite3"))}}
+if DB_ENGINE.endswith("sqlite3"):
+    DATABASES["default"]["OPTIONS"] = {"timeout": 30, "init_command": "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=30000;"}
 if DB_ENGINE.endswith("mysql"):
     DATABASES["default"].update({"USER": os.environ["DB_USER"], "PASSWORD": os.environ["DB_PASSWORD"], "HOST": os.environ["DB_HOST"], "PORT": os.environ.get("DB_PORT", "3306")})
 LANGUAGE_CODE = "id"

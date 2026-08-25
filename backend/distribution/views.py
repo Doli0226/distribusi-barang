@@ -739,6 +739,7 @@ def distribution_json(d):
             "estimated_arrival": d.estimated_arrival.isoformat() if d.estimated_arrival else "",
             "shipped_at": d.shipped_at.strftime("%d %b %Y %H:%M") if d.shipped_at else "",
             "completed_at": d.completed_at.strftime("%d %b %Y %H:%M") if d.completed_at else "",
+            "arrival_photo": d.arrival_photo or "",
             "note": d.note, "created_at": d.created_at.strftime("%d %b %Y %H:%M"),
             "items": [{"name": i.product.name, "sku": i.product.sku, "quantity": i.quantity, "unit": i.product.unit}
                       for i in d.request.items.select_related("product").all()],
@@ -814,6 +815,8 @@ def distribution_status_api(request, pk):
     with transaction.atomic():
         d.status = new_status
         if new_status == "in_transit" and not d.shipped_at: d.shipped_at = timezone.now()
+        if new_status == "arrived" and data.get("photo"):
+            d.arrival_photo = data["photo"]
         if new_status == "completed":
             d.completed_at = timezone.now()
             if d.vehicle:
@@ -912,29 +915,32 @@ def reports_summary_api(request):
     })
 
 
-def _dataset(kind):
+def _dataset(kind, ids=None):
+    """Return (title, rows). ids: optional iterable of primary keys to filter (None = all, [] = none)."""
+    def apply_ids(qs):
+        return qs.filter(id__in=ids) if ids is not None else qs
     if kind == "stock":
         rows = [["Gudang", "SKU", "Nama Barang", "Kategori", "Stok", "Minimum"]]
-        for s in WarehouseStock.objects.select_related("product__category", "warehouse"):
+        for s in apply_ids(WarehouseStock.objects.select_related("product__category", "warehouse")):
             rows.append([s.warehouse.name, s.product.sku, s.product.name, s.product.category.name,
                           s.quantity, s.product.minimum_stock])
         return "Laporan Stok", rows
     if kind == "requests":
         rows = [["Nomor", "Pemohon", "Gudang", "Tujuan", "Status", "Tanggal"]]
-        for r in ItemRequest.objects.select_related("requester", "warehouse"):
+        for r in apply_ids(ItemRequest.objects.select_related("requester", "warehouse")):
             rows.append([r.number, r.requester.username, r.warehouse.name, r.destination,
                           r.status, r.created_at.strftime("%Y-%m-%d %H:%M")])
         return "Laporan Permintaan", rows
     if kind == "distributions":
         rows = [["Nomor", "Permintaan", "Gudang", "Tujuan", "Kendaraan", "Status", "Tanggal"]]
-        for d in Distribution.objects.select_related("request", "warehouse", "vehicle"):
+        for d in apply_ids(Distribution.objects.select_related("request", "warehouse", "vehicle")):
             rows.append([d.number, d.request.number, d.warehouse.name, d.destination,
                           d.vehicle.plate_number if d.vehicle else "-", d.status,
                           d.created_at.strftime("%Y-%m-%d %H:%M")])
         return "Laporan Distribusi", rows
     if kind == "stock_transactions":
         rows = [["Tanggal", "Tipe", "SKU", "Barang", "Gudang", "Jumlah", "Saldo", "User", "Catatan"]]
-        for t in StockTransaction.objects.select_related("stock__product", "stock__warehouse", "created_by"):
+        for t in apply_ids(StockTransaction.objects.select_related("stock__product", "stock__warehouse", "created_by")):
             rows.append([t.created_at.strftime("%Y-%m-%d %H:%M"), t.transaction_type,
                           t.stock.product.sku, t.stock.product.name, t.stock.warehouse.name,
                           t.quantity, t.balance_after, t.created_by.username, t.note])
@@ -945,7 +951,12 @@ def _dataset(kind):
 @admin_required
 @catch_errors
 def report_export_api(request, kind, fmt):
-    title, rows = _dataset(kind)
+    ids_param = request.GET.get("ids")
+    if ids_param is None:
+        ids = None
+    else:
+        ids = [int(x) for x in ids_param.split(",") if x.strip().isdigit()]
+    title, rows = _dataset(kind, ids=ids)
     if fmt == "csv":
         buf = io.StringIO()
         w = csv.writer(buf); w.writerows(rows)

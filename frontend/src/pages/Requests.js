@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api } from "@/api";
+import { api, download } from "@/api";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/context/ToastContext";
 import Loading from "@/components/ui/Loading";
@@ -23,6 +23,7 @@ export default function Requests() {
   const [params, setParams] = useSearchParams();
   const [items, setItems] = useState(null);
   const [tab, setTab] = useState("");
+  const [selected, setSelected] = useState(new Set());
   const [modal, setModal] = useState(null);
   const [products, setProducts] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -66,6 +67,17 @@ export default function Requests() {
   }, [items]);
 
   const list = items?.filter((i) => !tab || i.status === tab) ?? [];
+  const toggleSel = (id) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAll = () => setSelected((s) => (s.size === list.length ? new Set() : new Set(list.map((r) => r.id))));
+  const exportSelected = async (fmt) => {
+    if (selected.size === 0) return toast.show("Pilih minimal satu permintaan", "danger");
+    try {
+      const ids = [...selected].join(",");
+      const ext = fmt === "excel" ? "xlsx" : fmt;
+      await download(`/reports/requests/export/${fmt}?ids=${ids}`, `permintaan-terpilih.${ext}`);
+      toast.show(`Diunduh permintaan-terpilih.${ext}`, "success");
+    } catch (e) { toast.show(e.message, "danger"); }
+  };
   if (items === null) return <Loading />;
 
   return (
@@ -85,22 +97,45 @@ export default function Requests() {
           ))}
         </div>
         {list.length === 0 ? <EmptyState /> : (
-          <div className="table-scroll"><table>
-            <thead><tr><th>NO. PERMINTAAN</th><th>PEMOHON</th><th>BARANG</th><th>TUJUAN</th><th>STATUS</th><th>TANGGAL</th><th></th></tr></thead>
-            <tbody>{list.map((r) => (
-              <tr key={r.id} data-testid={`request-row-${r.number}`}>
-                <td><b className="request-id">{r.number}</b></td>
-                <td>{r.requester_name}</td>
-                <td>{r.items[0]?.product_name || "-"}<small className="table-sub">{r.total_quantity} unit, {r.items.length} item</small></td>
-                <td>{r.destination}</td>
-                <td><StatusBadge status={r.status} /></td>
-                <td>{r.created_at}</td>
-                <td><div className="row-actions">
-                  <button onClick={() => nav(`/permintaan/${r.id}`)} data-testid={`view-request-${r.number}`}>Detail</button>
-                </div></td>
-              </tr>
-            ))}</tbody>
-          </table></div>
+          <>
+            {isAdmin && selected.size > 0 && (
+              <div className="filter-bar" data-testid="bulk-export-bar" style={{ background: "#eff6ff", padding: "10px 14px", borderRadius: 6 }}>
+                <b style={{ fontSize: 12, color: "#1d4ed8" }}>{selected.size} permintaan terpilih</b>
+                <div className="export-buttons" style={{ marginLeft: "auto" }}>
+                  <button onClick={() => exportSelected("csv")} data-testid="bulk-export-csv">Export CSV</button>
+                  <button onClick={() => exportSelected("excel")} data-testid="bulk-export-excel">Export Excel</button>
+                  <button onClick={() => exportSelected("pdf")} data-testid="bulk-export-pdf">Export PDF</button>
+                  <button onClick={() => setSelected(new Set())} data-testid="bulk-clear">Batal pilih</button>
+                </div>
+              </div>
+            )}
+            <div className="table-scroll"><table>
+              <thead><tr>
+                {isAdmin && <th style={{ width: 32 }}>
+                  <input type="checkbox" checked={selected.size === list.length && list.length > 0}
+                          onChange={toggleAll} data-testid="select-all-requests" aria-label="Pilih semua" />
+                </th>}
+                <th>NO. PERMINTAAN</th><th>PEMOHON</th><th>BARANG</th><th>TUJUAN</th><th>STATUS</th><th>TANGGAL</th><th></th>
+              </tr></thead>
+              <tbody>{list.map((r) => (
+                <tr key={r.id} data-testid={`request-row-${r.number}`}>
+                  {isAdmin && <td>
+                    <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSel(r.id)}
+                            data-testid={`select-request-${r.number}`} aria-label={`Pilih ${r.number}`} />
+                  </td>}
+                  <td><b className="request-id">{r.number}</b></td>
+                  <td>{r.requester_name}</td>
+                  <td>{r.items[0]?.product_name || "-"}<small className="table-sub">{r.total_quantity} unit, {r.items.length} item</small></td>
+                  <td>{r.destination}</td>
+                  <td><StatusBadge status={r.status} /></td>
+                  <td>{r.created_at}</td>
+                  <td><div className="row-actions">
+                    <button onClick={() => nav(`/permintaan/${r.id}`)} data-testid={`view-request-${r.number}`}>Detail</button>
+                  </div></td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+          </>
         )}
       </section>
 

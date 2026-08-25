@@ -140,11 +140,13 @@ class TestBadPayloads:
 # --- admin notification fan-out ---
 class TestAdminNotify:
     def test_staff_admin_receives_request_notification(self, admin_c, user_c):
-        before = admin_c.get(f"{API}/notifications", timeout=30).json()
-        cnt_before = len(before["items"])
+        # NOTE: /api/notifications caps the list at 50 newest items, so compare id sets
+        # (not lengths) to detect a newly created notification.
+        before_ids = {n["id"] for n in admin_c.get(f"{API}/notifications", timeout=30).json()["items"]}
         make_request(user_c, admin_c)
         after = admin_c.get(f"{API}/notifications", timeout=30).json()
-        assert len(after["items"]) > cnt_before, "admin got no notification for new request"
+        new = [n for n in after["items"] if n["id"] not in before_ids]
+        assert new, "admin got no notification for new request"
 
 
 # --- exports ---

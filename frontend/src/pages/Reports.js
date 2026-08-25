@@ -41,6 +41,10 @@ export default function Reports() {
         <div><p className="eyebrow">LAPORAN</p><h1>Laporan operasional</h1><p className="subtitle">Ekspor data ke PDF, Excel, CSV atau cetak langsung.</p></div>
       </div>
       <section className="panel product-page">
+        <div className="print-only print-header">
+          <b>Laporan Operasional — LogistiPro Indonesia</b>
+          <p>Periode: {start || "awal"} s/d {end || "sekarang"} · Dicetak {new Date().toLocaleString("id-ID")}</p>
+        </div>
         <div className="filter-bar">
           <label style={{ fontSize: 11, color: "#64748b" }}>Dari<input type="date" data-testid="report-start" value={start} onChange={(e) => setStart(e.target.value)} style={{ marginLeft: 6 }} /></label>
           <label style={{ fontSize: 11, color: "#64748b" }}>Sampai<input type="date" data-testid="report-end" value={end} onChange={(e) => setEnd(e.target.value)} style={{ marginLeft: 6 }} /></label>

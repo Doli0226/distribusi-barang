@@ -55,6 +55,15 @@ Bangun Web-Based Distribution Management System (Sistem Distribusi Barang) profe
 - Fixed: Profile page inputs unstyled outside .modal scope → added `.panel form label input` styling
 - Fixed: Notification badge stale after "Tandai semua" from Notifications page → window event `notifs:refresh`
 - Fixed: Modal ESC-close
+- Fixed: `?ids=abc` on report export returned full dataset → now correctly returns empty
+- Fixed: SQLite "database is locked" on concurrent writes → added WAL + busy_timeout=30s
+- Fixed: Toast stack overlapping topbar bell badge → moved down 68px
+
+## New Features (2026-08-25 iteration 4)
+- ✅ Notifikasi realtime: polling 4s + toast otomatis untuk notifikasi baru
+- ✅ Format cetak rapi: `@media print` menyembunyikan sidebar/topbar/tombol; header cetak dengan periode & timestamp
+- ✅ Foto bukti kirim: Distribution.arrival_photo (base64 data URL), modal upload saat transisi ke "arrived", tampilan foto di detail
+- ✅ Ekspor terpilih: checkbox di /permintaan (admin) + bulk export CSV/Excel/PDF via `?ids=1,2,3`
 
 ## Prioritized Backlog
 ### P1 (nice-to-have polish)

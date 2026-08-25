@@ -1,0 +1,54 @@
+{
+  "summary": "Iteration 4 verification of the 4 new LogistiPro features (realtime notification polling, print stylesheet for /laporan, arrival proof photo, selective bulk export) plus a quick regression on distribution status transitions. BACKEND: new suite /app/backend/tests/test_iter4_features.py (30 cases) -> 29 pass / 1 fail (serial run); full suite (backend_test.py + test_regression_iter3.py + test_iter4_features.py = 104 cases) -> 102 pass. VERIFIED: distribution.arrival_photo saved on POST /api/distributions/<id>/status {status:'arrived', photo:'data:image/png;base64,...'} and returned as string by GET; arrived without photo still 200 with arrival_photo=''; photo is NOT stored for in_transit/completed; photo survives further transitions; user role gets 403 on status change; invalid status -> 400, backward transition -> 400 ('Tidak dapat mundur...'); ?ids=<3 ids> on all 4 kinds x csv/excel/pdf returns exactly header+3 rows (csv row-count and xlsx max_row asserted); ?ids=abc,999999 -> header only, no 500; exports remain admin_required (403 for user); unsupported fmt -> 400. Also confirmed the iteration_3 CRITICAL date-serialization 500 (needed_date / estimated_arrival) is FIXED via parse_date(). FRONTEND (Playwright, 1920x1080, public URL): all 4 features PASS. (1) Photo flow: admin -> /distribusi/<id> -> 'Set: Tiba' opens 'Konfirmasi kedatangan' modal with arrival-photo-input; submit w/o file shows toast 'Unggah foto bukti kirim dahulu'; after choosing a 16x16 PNG the preview renders, 'Tandai Tiba' sets status to 'Tiba' and the BUKTI KIRIM panel appears; photo still present after reload (persisted) and after moving to 'Selesai'; in_transit and completed do NOT open the modal. (2) /permintaan admin: select-all + per-row checkboxes present, bulk bar hidden at 0 selection, shows '2 permintaan terpilih', CSV downloads as permintaan-terpilih.csv containing exactly the 2 selected REQ numbers, Excel/PDF download as permintaan-terpilih.xlsx/.pdf, 'Batal pilih' and select-all toggle work (70 rows). USER role sees no checkboxes and no bulk bar. (3) Realtime: topbar GETs /api/notifications every 4.0s (measured gaps [4.0,4.0]); after an out-of-band admin reject via a separate API session the toast 'Permintaan ditolak - REQ-2026-0071...' appeared without reload and the unread badge went 21 -> 22 while staying on /permintaan. (4) /laporan print: 19 @media print rules; under emulate_media('print') .sidebar/.topbar/.filter-bar/print-button are display:none, .print-only header visible with 'Laporan Operasional - LogistiPro Indonesia' + 'Periode: awal s/d sekarang - Dicetak 25/8/2026, 05.11.47'; summary cards, top-products table and export list remain. BONUS regression: the iteration_3 stale-badge bug is FIXED (mark-all on /notifikasi clears the topbar badge via the notifs:refresh event); /laporan still redirects non-admins to /dashboard.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/reports/<kind>/export/<fmt>?ids=abc", "issue": "When the ids param contains NO numeric token the parsed list is [] which is falsy in _dataset.apply_ids, so the FULL dataset is exported instead of an empty selection (header only). ?ids=abc,999999 behaves correctly. Fix: distinguish 'param absent' (None) from 'param present but empty' ([]) e.g. ids = None if not request.GET.get('ids') else [int(x) for x in ... ] and let an empty list filter to id__in=[]."},
+      {"endpoint": "POST /api/distributions (and any write) under concurrency", "issue": "Intermittent HTTP 500 {'detail':'Terjadi kesalahan di server...'} caused by sqlite3.OperationalError: database is locked (seen once when the suite ran with pytest-xdist parallel writers; reproducible ~1/2 parallel runs, 0/2 serial runs). SQLite is used without WAL journal or a busy timeout. Recommend OPTIONS={'timeout':20} + PRAGMA journal_mode=WAL, or MySQL/Postgres."},
+      {"endpoint": "GET /api/notifications", "issue": "Hard-capped at the 50 newest items with no pagination / no ?since= or ?after_id= param. The 4s poller therefore re-downloads the whole 50-item payload every 4 seconds (~900 requests/user/hour) - consider an unread-only or since-id endpoint."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Realtime notification polling - self-generated actions", "issue": "A user's own action produces both the page-level success toast and, up to 4s later, a second polling toast for the same event (e.g. 'Permintaan dibuat - REQ-... berhasil dibuat'), so users see duplicate toasts. Consider suppressing toasts for notifications created by the current user's own action or de-duplicating by message.", "affected_selectors": ["[data-testid=\"toast-stack\"]"]},
+      {"flow": "Notification polling lifecycle", "issue": "setInterval(load, 4000) keeps polling while the tab is hidden and its dependency is location.pathname, so every route change tears down and recreates the timer (extra immediate request per navigation). Consider pausing on document.hidden.", "affected_selectors": ["[data-testid=\"notifications-button\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "Topbar / toast stack (all pages, 1920px)", "issues": ["Toasts still render on top of the notification bell + user block, covering the unread badge exactly while a new realtime toast is shown - the feature that most needs the badge visible is the one that hides it. Offset the toast stack below the topbar (top: 72px) or move it bottom-right."]},
+      {"screen": "/laporan print output", "issues": ["Minor: the on-screen page-heading ('Laporan operasional / Ekspor data ke PDF, Excel, CSV atau cetak langsung.') still prints above the dedicated print header, producing a duplicated title block on paper.", "Minor: the 'Export data' card list prints as empty-looking rows (its CSV/Excel/PDF buttons are correctly hidden), wasting a page - consider hiding the whole export section in print."]},
+      {"screen": "Distribution detail - BUKTI KIRIM", "issues": ["The stored data-URL is rendered at its natural size with only max-width:320 - a tiny image (test 16x16 PNG) renders as a 16px dot with no min-width/aspect handling or click-to-zoom. No max size validation feedback other than the 2MB toast."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter4_features.py",
+    "/app/backend/tests/test_regression_iter3.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix ?ids=abc (no numeric token) exporting the whole dataset - treat an empty parsed id list as 'select nothing'.",
+    "Harden SQLite for concurrent writes (busy timeout + WAL) to stop intermittent 500 'database is locked' on POST /api/distributions and other writes.",
+    "De-duplicate the polling toast for notifications generated by the current user's own action.",
+    "Move the toast stack so it no longer covers the topbar unread badge.",
+    "Optional: hide the /laporan page-heading and export-card section in @media print (currently duplicated / empty on paper); pause the 4s poll when document.hidden."
+  ],
+  "critical_code_review_comments": [
+    "arrival_photo stores the whole base64 data-URL in a TextField: a 2MB photo becomes ~2.7MB of base64 inside every GET /api/distributions row (distribution_json always includes arrival_photo), so the list endpoint payload grows unbounded. Store files on disk/S3 and return a URL, or at minimum exclude arrival_photo from the list serializer and only return it on the detail endpoint.",
+    "No server-side validation of the photo payload: distribution_status_api accepts any string in data['photo'] (no size cap, no data:image/* prefix check) - the 2MB limit is enforced only in the browser and is trivially bypassed.",
+    "report_export_api builds the id filter with a bare int() comprehension guarded by isdigit(); negative/very large ids silently pass. Acceptable, but the None-vs-[] ambiguity is the actual bug (see backend_issues).",
+    "views.py remains ~1000 lines mixing auth/CRUD/workflow/reporting - still needs splitting into modules (unchanged from iteration_3).",
+    "Topbar polling logic (knownIds/bootstrapped refs) belongs in a shared NotificationContext; duplicating it would break if a second component ever polls."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter4_features.py",
+    "/app/backend/tests/test_regression_iter3.py"
+  ],
+  "success_rate": {"backend": "97% (102/104 across all suites; 1 real minor bug (ids=abc) + 1 flaky sqlite-lock 500 under parallel writes)", "frontend": "100% of the 4 new feature flows passed (14/14 UI assertions); only cosmetic/design nits remain"},
+  "seed_data_creation": "Created via API/UI: requests REQ-2026-0055..0071 (destinations 'TEST_ITER4 ...', 'TEST_UI6 ...'), distributions DST-2026-0031..0038 (DST-2026-0038 carries a 16x16 PNG arrival_photo). Demo accounts untouched.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@logistipro.id/admin123 and user@logistipro.id/user123 - both verified working; /app/memory/test_credentials.md accurate.",
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests/ -q` (pytest.ini pre-set, uses xdist -n auto). Expect 1 intentional failure: test_iter4_features.py::TestSelectiveExport::test_non_numeric_only_ids_no_500 documents the ?ids=abc bug - it should pass once the main agent fixes the None-vs-[] handling in report_export_api. If a run shows a 500 on POST /api/distributions, re-run serially (-o addopts='') to confirm it is the sqlite 'database is locked' flake, not a logic bug. All 4 iteration-4 features (arrival photo modal + persistence, bulk export bar/filenames/content, 4s notification polling with toast + badge increment, /laporan print stylesheet) were fully verified in the UI and need no re-test unless the main agent changes them. The iteration_3 CRITICAL date-500 bug and the stale unread-badge bug are both fixed.",
+  "rca_of_the_issue": "ids=abc bug: report_export_api does `ids = [int(x) for x in ids_param.split(',') if x.strip().isdigit()] if ids_param else None`. For ids='abc' the comprehension yields [] (truthy param, empty list); _dataset.apply_ids then evaluates `qs.filter(id__in=ids) if ids else qs` and, because [] is falsy, returns the unfiltered queryset -> the entire dataset is exported. Reproduce: GET /api/reports/requests/export/csv?ids=abc as admin -> 72+ rows instead of 1 header row. Fix: keep None only when the param is absent and use `if ids is not None` in apply_ids. Sqlite lock: config/settings.py uses sqlite3 with no OPTIONS timeout and default journal mode; two concurrent write transactions (transaction.atomic in distributions_api) raise OperationalError 'database is locked', which catch_errors converts into a generic 500."
+}

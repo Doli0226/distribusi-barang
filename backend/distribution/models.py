@@ -119,6 +119,7 @@ class Distribution(models.Model):
     shipped_at = models.DateTimeField(null=True, blank=True)
     estimated_arrival = models.DateField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    arrival_photo = models.TextField(blank=True, help_text="Data URL (base64) atau URL bukti kirim")
     note = models.TextField(blank=True)
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="created_distributions")
     created_at = models.DateTimeField(auto_now_add=True)
