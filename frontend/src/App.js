@@ -1,35 +1,98 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import "@/App.css";
 import "@/Mobile.css";
-import { Bell, Boxes, ChevronDown, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Search, Settings, Truck, Warehouse, X } from "lucide-react";
-import { BarChart, Bar, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, PieChart, Pie, Cell } from "recharts";
+import "@/Extra.css";
 
-const initialProducts = [
-  { sku: "SKU-EL-001", name: "Kabel LAN Cat6", category: "Elektronik", stock: 1240, unit: "meter", min: 500, status: "Aktif" },
-  { sku: "SKU-AT-014", name: "Kursi Lipat Premium", category: "ATK & Furnitur", stock: 86, unit: "unit", min: 100, status: "Stok rendah" },
-  { sku: "SKU-KB-008", name: "Kardus Pengiriman M", category: "Kemasan", stock: 680, unit: "pcs", min: 250, status: "Aktif" },
-  { sku: "SKU-AP-021", name: "Hand Sanitizer 500ml", category: "APD", stock: 42, unit: "botol", min: 80, status: "Stok rendah" },
-];
-const requests = [
-  { id: "REQ-2024-0082", requester: "Siti Rahma", item: "Kabel LAN Cat6", qty: "120 meter", status: "Menunggu", date: "12 Jun 2024" },
-  { id: "REQ-2024-0081", requester: "Budi Santoso", item: "Kardus Pengiriman M", qty: "200 pcs", status: "Disetujui", date: "11 Jun 2024" },
-  { id: "REQ-2024-0080", requester: "Andi Wijaya", item: "Kursi Lipat Premium", qty: "40 unit", status: "Diproses", date: "10 Jun 2024" },
-];
-const distributionData = [{ name: "Jan", total: 38 }, { name: "Feb", total: 52 }, { name: "Mar", total: 44 }, { name: "Apr", total: 68 }, { name: "Mei", total: 74 }, { name: "Jun", total: 61 }];
-const pieData = [{ name: "Elektronik", value: 44, color: "#2563eb" }, { name: "Kemasan", value: 28, color: "#14b8a6" }, { name: "ATK", value: 18, color: "#f59e0b" }, { name: "APD", value: 10, color: "#f97316" }];
-const nav = [{ label: "Ringkasan", icon: LayoutDashboard }, { label: "Permintaan", icon: ClipboardList, count: 12 }, { label: "Barang", icon: Boxes }, { label: "Stok & Gudang", icon: Warehouse }, { label: "Distribusi", icon: Truck }];
-const badgeClass = (status) => ({ Menunggu: "badge amber", "Stok rendah": "badge red", Disetujui: "badge green", Diproses: "badge blue", Aktif: "badge green" }[status] || "badge gray");
+import Sidebar from "@/components/layout/Sidebar";
+import Topbar from "@/components/layout/Topbar";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { ToastProvider } from "@/context/ToastContext";
 
-function Login({ onLogin }) { return <main className="login-page"><div className="login-visual"><div className="brand-mark">L<span>/</span>P</div><div className="visual-copy"><p className="eyebrow">DISTRIBUTION CONTROL CENTER</p><h1>Semua kiriman,<br /><em>terkendali.</em></h1><p>Pantau inventori, kelola permintaan, dan pastikan distribusi tiba tepat waktu.</p></div><div className="visual-footer">© 2024 LogistiPro Indonesia <span>v1.0.0</span></div></div><section className="login-card"><div className="login-brand"><div className="small-logo">L<span>/</span>P</div><strong>Logisti<span>Pro</span></strong></div><div className="login-heading"><p className="eyebrow">SELAMAT DATANG KEMBALI</p><h2>Masuk ke workspace</h2><p>Kelola operasional distribusi Anda dengan lebih cerdas.</p></div><form onSubmit={(e) => { e.preventDefault(); onLogin(); }}><label>Email kerja<input data-testid="login-email-input" type="email" placeholder="nama@perusahaan.com" defaultValue="admin@logistipro.id" /></label><label>Password<div className="password-input"><input data-testid="login-password-input" type="password" placeholder="••••••••" defaultValue="admin123" /><span>Tampilkan</span></div></label><div className="form-row"><label className="check"><input type="checkbox" defaultChecked /> Ingat saya</label><a href="#reset" data-testid="reset-password-link">Lupa password?</a></div><button className="primary-button" data-testid="login-submit-button">Masuk ke Dashboard <span>→</span></button></form><p className="login-hint">Demo: <b>admin@logistipro.id</b> / admin123</p></section></main>; }
+import Login from "@/pages/Login";
+import Register from "@/pages/Register";
+import ResetPassword from "@/pages/ResetPassword";
+import Dashboard from "@/pages/Dashboard";
+import Products from "@/pages/Products";
+import Categories from "@/pages/Categories";
+import Warehouses from "@/pages/Warehouses";
+import Stock from "@/pages/Stock";
+import Recipients from "@/pages/Recipients";
+import Vehicles from "@/pages/Vehicles";
+import Requests from "@/pages/Requests";
+import RequestDetail from "@/pages/RequestDetail";
+import Distributions from "@/pages/Distributions";
+import DistributionDetail from "@/pages/DistributionDetail";
+import Tracking from "@/pages/Tracking";
+import Notifications from "@/pages/Notifications";
+import Activities from "@/pages/Activities";
+import Reports from "@/pages/Reports";
+import Users from "@/pages/Users";
+import Profile from "@/pages/Profile";
 
-function App() { const [loggedIn, setLoggedIn] = useState(true); const [active, setActive] = useState("Ringkasan"); const [products, setProducts] = useState(initialProducts); const [query, setQuery] = useState(""); const [showRequest, setShowRequest] = useState(false); const [role, setRole] = useState("Admin"); const [mobileNav, setMobileNav] = useState(false); const selectNav = (label) => { setActive(label); setMobileNav(false); }; const filteredProducts = useMemo(() => products.filter((p) => `${p.name} ${p.sku}`.toLowerCase().includes(query.toLowerCase())), [products, query]); if (!loggedIn) return <Login onLogin={() => setLoggedIn(true)} />; const pageTitle = active === "Ringkasan" ? "Ringkasan operasional" : active; return <div className="app-shell"><aside className={`sidebar ${mobileNav ? "mobile-open" : ""}`}><div className="brand"><div className="brand-square">L<span>/</span>P</div><div><b>Logisti<span>Pro</span></b><small>INDONESIA</small></div></div><div className="workspace"><span className="workspace-dot" /> Main Workspace <ChevronDown size={14} /></div><nav>{nav.map(({ label, icon: Icon, count }) => <button key={label} className={active === label ? "nav-item active" : "nav-item"} onClick={() => selectNav(label)} data-testid={`nav-${label.toLowerCase().replaceAll(" ", "-")}`}><Icon size={18} />{label}{count && <span className="nav-count">{count}</span>}</button>)}</nav><div className="sidebar-bottom"><button className="nav-item"><Settings size={18} /> Pengaturan</button><div className="profile"><div className="avatar">AR</div><div><b>Adi Rahman</b><small>Administrator</small></div><ChevronDown size={15} /></div></div></aside><main className="main-content"><header className="topbar"><button className="mobile-menu" aria-label="Buka menu" onClick={() => setMobileNav((open) => !open)} data-testid="mobile-menu-button">{mobileNav ? <X /> : <Menu />}</button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{pageTitle}</strong></div><div className="top-actions"><div className="role-switch"><button className={role === "Admin" ? "selected" : ""} onClick={() => setRole("Admin")} data-testid="role-admin-button">Admin</button><button className={role === "User" ? "selected" : ""} onClick={() => setRole("User")} data-testid="role-user-button">User</button></div><button className="icon-button notification" data-testid="notifications-button"><Bell size={19} /><i>3</i></button><div className="top-profile"><div className="avatar small">AR</div><div><b>Adi Rahman</b><small>Administrator</small></div><ChevronDown size={15} /></div><button className="logout" onClick={() => setLoggedIn(false)} data-testid="logout-button"><LogOut size={17} /></button></div></header><div className="page-wrap"><div className="page-heading"><div><p className="eyebrow">RABU, 12 JUNI 2024</p><h1>{role === "Admin" ? "Selamat pagi, Adi" : "Selamat pagi, User"}</h1><p className="subtitle">Berikut ringkasan aktivitas distribusi hari ini.</p></div><button className="primary-button compact" onClick={() => setShowRequest(true)} data-testid="create-request-button"><span>＋</span> Buat Permintaan</button></div>{active === "Barang" ? <ProductPage products={filteredProducts} query={query} setQuery={setQuery} setProducts={setProducts} /> : active === "Permintaan" ? <RequestsPage onCreate={() => setShowRequest(true)} /> : active === "Distribusi" ? <DistributionPage /> : <Dashboard products={products} />}</div></main>{showRequest && <RequestModal onClose={() => setShowRequest(false)} />}</div>; }
+function AdminRoute({ children }) {
+  const { isAdmin, ready } = useAuth();
+  if (!ready) return null;
+  return isAdmin ? children : <Navigate to="/dashboard" replace />;
+}
 
-function Stat({ icon: Icon, label, value, trend, tone }) { return <div className="stat-card" data-testid={`stat-${label.toLowerCase().replaceAll(" ", "-")}`}><div className={`stat-icon ${tone}`}><Icon size={21} /></div><p>{label}</p><strong>{value}</strong><small className={trend.startsWith("+") ? "positive" : "neutral"}>{trend}</small></div>; }
-function Dashboard({ products }) { return <><div className="stats-grid"><Stat icon={Package} label="Total barang" value="1,248" trend="+8.2% dari bulan lalu" tone="blue" /><Stat icon={Warehouse} label="Total stok" value="24,680" trend="+4.6% dari bulan lalu" tone="teal" /><Stat icon={ClipboardList} label="Permintaan pending" value="12" trend="+3 perlu ditinjau" tone="amber" /><Stat icon={Truck} label="Distribusi berjalan" value="28" trend="+12.5% dari bulan lalu" tone="orange" /></div><div className="content-grid"><section className="panel chart-panel"><div className="panel-head"><div><h3>Aktivitas distribusi</h3><p>Jumlah distribusi per bulan</p></div><select data-testid="distribution-period-filter"><option>6 bulan terakhir</option><option>Tahun ini</option></select></div><div className="chart-wrap"><ResponsiveContainer width="100%" height="100%"><BarChart data={distributionData}><CartesianGrid vertical={false} stroke="#e8edf3" /><XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12 }} /><YAxis axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 12 }} /><Tooltip cursor={{ fill: "#f1f5f9" }} /><Bar dataKey="total" fill="#2563eb" radius={[5, 5, 0, 0]} barSize={28} /></BarChart></ResponsiveContainer></div></section><section className="panel category-panel"><div className="panel-head"><div><h3>Barang terdistribusi</h3><p>Berdasarkan kategori</p></div><button className="more-button" aria-label="Menu kategori">•••</button></div><div className="donut"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={pieData} dataKey="value" innerRadius={55} outerRadius={78} paddingAngle={4}>{pieData.map((e) => <Cell key={e.name} fill={e.color} />)}</Pie></PieChart></ResponsiveContainer><div><strong>1,248</strong><span>total item</span></div></div><div className="legend">{pieData.map((e) => <span key={e.name}><i style={{ background: e.color }} />{e.name}<b>{e.value}%</b></span>)}</div></section></div><section className="panel table-panel"><div className="panel-head"><div><h3>Permintaan terbaru</h3><p>Permintaan yang membutuhkan perhatian</p></div><button className="text-button" data-testid="view-all-requests-button">Lihat semua <span>→</span></button></div><RequestTable /></section><section className="low-stock"><div className="low-stock-icon"><Package size={22} /></div><div><b>Perhatian stok rendah</b><p>{products.filter((p) => p.status === "Stok rendah").length} barang berada di bawah stok minimum dan perlu segera diisi ulang.</p></div><button className="outline-button" data-testid="view-low-stock-button">Tinjau stok</button></section></>; }
-function RequestTable() { return <div className="table-scroll"><table><thead><tr><th>NO. PERMINTAAN</th><th>PEMOHON</th><th>BARANG</th><th>JUMLAH</th><th>STATUS</th><th>TANGGAL</th><th /></tr></thead><tbody>{requests.map((r) => <tr key={r.id}><td><b className="request-id">{r.id}</b></td><td>{r.requester}</td><td>{r.item}</td><td>{r.qty}</td><td><span className={badgeClass(r.status)}>{r.status}</span></td><td>{r.date}</td><td><button className="row-menu" aria-label={`Opsi ${r.id}`}>•••</button></td></tr>)}</tbody></table></div>; }
-function ProductPage({ products, query, setQuery, setProducts }) { return <section className="panel product-page"><div className="panel-head"><div><h3>Daftar barang</h3><p>Kelola katalog dan ketersediaan barang</p></div><button className="primary-button compact" onClick={() => setProducts((p) => [...p, { sku: "SKU-BARU-001", name: "Barang baru", category: "Umum", stock: 0, unit: "pcs", min: 10, status: "Stok rendah" }])} data-testid="add-product-button">＋ Tambah barang</button></div><div className="toolbar"><div className="search-box"><Search size={17} /><input data-testid="product-search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Cari SKU atau nama barang..." /></div><button className="filter-button" data-testid="product-filter-button">Filter <ChevronDown size={15} /></button></div><div className="table-scroll"><table><thead><tr><th>SKU</th><th>NAMA BARANG</th><th>KATEGORI</th><th>STOK</th><th>MINIMUM</th><th>STATUS</th></tr></thead><tbody>{products.map((p) => <tr key={p.sku}><td><b className="request-id">{p.sku}</b></td><td><strong>{p.name}</strong><small className="table-sub">Satuan: {p.unit}</small></td><td>{p.category}</td><td><strong>{p.stock.toLocaleString("id-ID")}</strong></td><td>{p.min}</td><td><span className={badgeClass(p.status)}>{p.status}</span></td></tr>)}</tbody></table></div></section>; }
-function RequestsPage({ onCreate }) { return <section className="panel product-page"><div className="panel-head"><div><h3>Permintaan barang</h3><p>Review dan proses permintaan dari tim</p></div><button className="primary-button compact" onClick={onCreate} data-testid="requests-create-button">＋ Buat permintaan</button></div><div className="request-tabs"><button className="active">Semua <b>28</b></button><button>Menunggu <b>12</b></button><button>Disetujui <b>8</b></button><button>Ditolak <b>2</b></button></div><RequestTable /></section>; }
-function DistributionPage() { return <section className="panel product-page"><div className="panel-head"><div><h3>Distribusi & tracking</h3><p>Pantau seluruh pengiriman yang sedang berjalan</p></div><button className="filter-button" data-testid="distribution-filter-button">Filter status <ChevronDown size={15} /></button></div><div className="tracking-list">{[{ id: "DST-2024-0041", route: "Jakarta → Bandung", item: "Kardus Pengiriman M · 200 pcs", status: "Dalam pengiriman", progress: 68 }, { id: "DST-2024-0040", route: "Jakarta → Surabaya", item: "Kabel LAN Cat6 · 120 meter", status: "Disiapkan", progress: 25 }, { id: "DST-2024-0039", route: "Jakarta → Semarang", item: "Hand Sanitizer · 80 botol", status: "Tiba", progress: 100 }].map((d) => <div className="tracking-row" key={d.id}><div className="truck-circle"><Truck size={19} /></div><div className="tracking-info"><b>{d.id} <span className={badgeClass(d.status === "Tiba" ? "Disetujui" : "Diproses")}>{d.status}</span></b><strong>{d.route}</strong><small>{d.item}</small><div className="progress"><i style={{ width: `${d.progress}%` }} /></div></div><button className="text-button">Detail →</button></div>)}</div></section>; }
-function RequestModal({ onClose }) { return <div className="modal-backdrop"><div className="modal"><button className="modal-close" onClick={onClose} data-testid="close-request-modal"><X size={18} /></button><p className="eyebrow">PERMINTAAN BARU</p><h2>Buat permintaan barang</h2><p className="subtitle">Lengkapi detail kebutuhan distribusi Anda.</p><label>Barang<select data-testid="request-product-select"><option>Kabel LAN Cat6</option><option>Kardus Pengiriman M</option><option>Kursi Lipat Premium</option></select></label><div className="form-grid"><label>Jumlah<input data-testid="request-quantity-input" type="number" defaultValue="10" /></label><label>Tanggal kebutuhan<input data-testid="request-date-input" type="date" /></label></div><label>Tujuan pengiriman<input data-testid="request-destination-input" placeholder="Kota atau alamat tujuan" /></label><label>Catatan<textarea data-testid="request-notes-input" placeholder="Tambahkan catatan (opsional)" /></label><div className="modal-actions"><button className="outline-button" onClick={onClose} data-testid="cancel-request-button">Batal</button><button className="primary-button" onClick={onClose} data-testid="submit-request-button">Kirim permintaan <span>→</span></button></div></div></div>; }
+function ProtectedShell() {
+  const { user, ready } = useAuth();
+  const location = useLocation();
+  const [mobileNav, setMobileNav] = useState(false);
+  if (!ready) return null;
+  if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
+  return (
+    <div className={`app-shell ${user.role === "user" ? "role-user" : ""}`}>
+      <Sidebar mobileOpen={mobileNav} onNavigate={() => setMobileNav(false)} />
+      <main className="main-content">
+        <Topbar onToggleMobile={() => setMobileNav((x) => !x)} mobileOpen={mobileNav} />
+        <div className="page-wrap">
+          <Routes>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/permintaan" element={<Requests />} />
+            <Route path="/permintaan/:id" element={<RequestDetail />} />
+            <Route path="/barang" element={<AdminRoute><Products /></AdminRoute>} />
+            <Route path="/kategori" element={<AdminRoute><Categories /></AdminRoute>} />
+            <Route path="/gudang" element={<AdminRoute><Warehouses /></AdminRoute>} />
+            <Route path="/stok" element={<AdminRoute><Stock /></AdminRoute>} />
+            <Route path="/penerima" element={<AdminRoute><Recipients /></AdminRoute>} />
+            <Route path="/kendaraan" element={<AdminRoute><Vehicles /></AdminRoute>} />
+            <Route path="/distribusi" element={<Distributions />} />
+            <Route path="/distribusi/:id" element={<DistributionDetail />} />
+            <Route path="/tracking" element={<Tracking />} />
+            <Route path="/notifikasi" element={<Notifications />} />
+            <Route path="/aktivitas" element={<AdminRoute><Activities /></AdminRoute>} />
+            <Route path="/laporan" element={<AdminRoute><Reports /></AdminRoute>} />
+            <Route path="/pengguna" element={<AdminRoute><Users /></AdminRoute>} />
+            <Route path="/profil" element={<Profile />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </div>
+      </main>
+    </div>
+  );
+}
 
-export default App;
+function PublicOnly({ children }) {
+  const { user, ready } = useAuth();
+  if (!ready) return null;
+  return user ? <Navigate to="/dashboard" replace /> : children;
+}
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <BrowserRouter>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
+            <Route path="/register" element={<PublicOnly><Register /></PublicOnly>} />
+            <Route path="/reset-password" element={<PublicOnly><ResetPassword /></PublicOnly>} />
+            <Route path="/*" element={<ProtectedShell />} />
+          </Routes>
+        </AuthProvider>
+      </BrowserRouter>
+    </ToastProvider>
+  );
+}

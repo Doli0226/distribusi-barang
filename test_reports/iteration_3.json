@@ -1,0 +1,50 @@
+{
+  "summary": "Regression testing of iteration-2 fixes for LogistiPro (Django + React). Backend: existing suite (49 cases) 48 passed / 1 failed + new regression suite /app/backend/tests/test_regression_iter3.py (25 cases) 23 passed / 2 failed. Verified FIXED: DST/REQ number generation via next_number() (no more UNIQUE collision), 404 JSON {detail:'Data tidak ditemukan'} for missing pk on products/warehouses/requests/distributions, 400 on incomplete POST bodies (products/requests/stocks-transaction/distributions), distribution status validation (invalid status -> 400, backward transition -> 400, prepared->in_transit->arrived->completed OK and request becomes 'completed'), admin notification fan-out to is_staff/profile-role admins, all 12 export combos (stock/requests/distributions/stock_transactions x csv/excel/pdf) return correct content-types. Frontend verified FIXED: Modal closes with X, backdrop click AND Escape; /barang deactivate shows 'Nonaktif' + 'Aktifkan' and re-activate restores 'Nonaktifkan'; /profil inputs styled (border 1px, padding 11px) and update saves ('Profil diperbarui'); /stok out with excessive qty shows 'Stok tidak mencukupi' toast and IN transaction works; admin sidebar 14 menus + 2 charts + stats; user role sees only 5 menus and /barang,/pengguna,/aktivitas redirect to /dashboard; laporan CSV/Excel/PDF downloads work; Detail buttons navigate; distribution status buttons update timeline. NEW CRITICAL BUG: any POST that includes a date field (needed_date on /api/requests, estimated_arrival on /api/distributions) returns HTTP 500 (AttributeError: 'str' object has no attribute 'isoformat') AFTER the row is committed - so the record IS created but the UI shows 'Request failed with status code 500' and the modal stays open; retrying returns 400 'Distribusi sudah dibuat'.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/requests (needed_date) and POST /api/distributions (estimated_arrival)", "issue": "HTTP 500 AttributeError: 'str' object has no attribute 'isoformat'. request_json()/distribution_json() are called on the freshly created in-memory instance whose date field still holds the raw string from the JSON payload (Django does not coerce on create). The transaction has already committed, so the request/distribution IS persisted while the client gets a 500 -> duplicated/orphan rows and users repeatedly retry. Verified in DB: DST-2026-0006 & DST-2026-0010 exist with estimated_arrival set although the API answered 500. Fix: parse dates with datetime.date.fromisoformat (return 400 on bad format) before create, or refresh_from_db()/re-fetch before serializing.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/requests, POST /api/distributions", "issue": "No date-format validation at all; an invalid date string ('2026-13-45') would reach the DB layer instead of returning 400."},
+      {"endpoint": "catch_errors decorator", "issue": "Catches only DoesNotExist/KeyError/ValueError/TypeError; AttributeError (the bug above) and IntegrityError in other views still surface as Django 500 debug HTML. Also DEBUG appears enabled - 500 responses return full HTML tracebacks to the public URL."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Requests create modal / RequestDetail 'Buat distribusi' modal", "issue": "Filling 'Tanggal kebutuhan' or 'Estimasi tiba' makes the save fail with a raw axios toast 'Request failed with status code 500' (backend bug above). Modal stays open and a retry gives 'Distribusi sudah dibuat' even though the record was created.", "selector": "[data-testid=\"req-submit-button\"], [data-testid=\"dist-save\"]", "priority": "CRITICAL"},
+      {"component": "Toast error messages", "issue": "Error toasts print the raw axios message instead of the backend 'detail' field for 5xx responses - user-hostile.", "selector": "[data-testid=\"toast-stack\"]", "priority": "MEDIUM"},
+      {"component": "Date inputs (req-needed-date, dist-eta)", "issue": "Still native browser date picker rendering US mm/dd/yyyy instead of the shadcn calendar / Indonesian locale.", "selector": "[data-testid=\"req-needed-date\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Notifications mark-all (still not fixed from iteration_2)", "issue": "After 'Tandai semua dibaca' on /notifikasi the DB unread count is 0 but the topbar bell badge still shows the old value (27) until a route change or the 30s poll. Topbar loads notifications only on location.pathname change; the page-level markAll does not invalidate that state (needs shared context/event).", "affected_selectors": ["[data-testid=\"mark-all-page\"]", "[data-testid=\"notification-count\"]"]},
+      {"flow": "App bootstrap", "issue": "GET /api/auth/me still fired twice on cold load, both 401 for anonymous visitors (console errors).", "affected_selectors": []}
+    ],
+    "design_issues": [
+      {"screen": "Profil", "issues": ["Inputs now correctly styled - previous issue resolved"]},
+      {"screen": "Topbar", "issues": ["Toasts still overlay the notification bell / user block area at 1920px"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/backend/tests/test_regression_iter3.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "FIX CRITICAL: coerce needed_date / estimated_arrival to date objects (date.fromisoformat, 400 on invalid) or re-fetch the object before calling request_json/distribution_json; ensure no row is persisted when the response is an error.",
+    "Add AttributeError/generic Exception handling in catch_errors returning JSON 500 and disable DEBUG HTML tracebacks on the public URL.",
+    "Show backend 'detail' text in error toasts instead of 'Request failed with status code 500'.",
+    "Refresh the topbar unread badge right after 'Tandai semua dibaca' (shared notification context or callback).",
+    "De-duplicate the GET /api/auth/me bootstrap call.",
+    "Optional: replace native date inputs with the app's calendar component for id-ID formatting."
+  ],
+  "critical_code_review_comments": [
+    "views.py is still ~980 lines mixing auth/CRUD/workflow/reporting - split into modules.",
+    "Serializing freshly-created model instances without refresh_from_db is unsafe for any typed field fed from raw JSON; this is the same class of bug as the previous 500s and will recur for other date/decimal fields.",
+    "Mutations still index raw JSON (data['warehouse_id']) with no schema validation layer; catch_errors only masks the common cases.",
+    "next_number() scans all rows in Python on every insert - acceptable at demo scale but O(n) and still racy without select_for_update; the IntegrityError->409 retry hint is not actually retried."
+  ],
+  "updated_files": ["/app/backend/tests/test_regression_iter3.py"],
+  "success_rate": {"backend": "96% (71/74 cases across both suites; all failures caused by the single date-serialization bug)", "frontend": "88% (all pages, CRUD, guards, exports, modal-close, product reactivate, profile styling OK; request/distribution creation with a date shows 500, notif badge stale)"},
+  "seed_data_creation": "Created TEST_ data via API/UI: requests REQ-2026-0019..0032 with destinations starting TEST_REG_/TEST UI5, distributions DST-2026-0006..0010, stock transactions noted 'TEST UI5'. Demo accounts untouched.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@logistipro.id/admin123, user@logistipro.id/user123 - both verified; /app/memory/test_credentials.md accurate.",
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests/ -q` (pytest.ini pre-set). Currently failing: backend_test.py::TestWorkflow::test_full_happy_path, test_regression_iter3.py::TestDistributionNumber::test_create_distribution_with_eta and ::TestDateSerialization::test_request_with_needed_date - all the same root cause (date string serialization -> 500). Everything else in test_regression_iter3.py (number uniqueness, status state machine, 404/400 handling, exports, admin notify) passes. After the fix re-run those 3 and re-test the UI flow: /permintaan -> new request WITH 'Tanggal kebutuhan' -> approve -> Buat distribusi WITH 'Estimasi tiba' -> statuses to Selesai. Also re-check topbar bell badge after 'Tandai semua dibaca'.",
+  "rca_of_the_issue": "In requests_api and distributions_api the object is created inside transaction.atomic() with needed_date/estimated_arrival taken directly from the JSON payload (a 'YYYY-MM-DD' string). After the block commits, request_json()/distribution_json() call r.needed_date.isoformat() / d.estimated_arrival.isoformat() on the still-string attribute -> AttributeError -> Django 500 (catch_errors does not catch AttributeError). Because the commit already happened, the row exists in the DB while the client sees an error (verified: DST-2026-0010 for REQ-2026-0032 persisted after a 500). Reproduce: POST /api/distributions {request_id, estimated_arrival:'2026-08-01'} or fill the date field in the UI modal. Mitigation: parse to datetime.date before create (400 on ValueError) or re-fetch the instance before serialization."
+}

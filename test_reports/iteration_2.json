@@ -1,0 +1,67 @@
+{
+  "summary": "Full backend + frontend E2E test of LogistiPro (Django API + React). Backend: 49 pytest cases across auth, dashboard, master-data CRUD, stock, request workflow, distributions, tracking, notifications, activity log, reports/exports, RBAC and error handling -> 46 passed, 3 failed. Frontend: 6 Playwright runs covering admin login, dashboard/charts, sidebar (14 admin menus / 5 user menus), request tabs + create + approve + reject, distribution detail + status update, stock in/out (incl. insufficient-stock error), barang/kategori/gudang/penerima/kendaraan CRUD, pengguna list, laporan CSV/Excel/PDF downloads, aktivitas with IP, notifikasi mark-all, user-role route guards, profil update + wrong-password, register, reset-password, mobile viewport. CRITICAL BLOCKER: creating a distribution returns HTTP 500 (SQLite UNIQUE constraint on Distribution.number) both via API and UI, so the approved -> prepared -> in_transit -> completed flow cannot be started for new requests.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/distributions", "issue": "HTTP 500 IntegrityError: UNIQUE constraint failed: distribution_distribution.number. Number is generated as DST-{year}-{max(id)+1:04d} but seeded rows are id=1 -> DST-2026-0003 and id=2 -> DST-2026-0002, so the next generated number (DST-2026-0003) already exists. Distribution creation is permanently broken for every new request. Generate the sequence from the existing max number (or a counter/UUID) with retry, and wrap in try/except returning 400/409.", "priority": "CRITICAL"},
+      {"endpoint": "GET /api/products/<id>, /api/requests/<id>, /api/distributions/<id>, PUT|DELETE /api/categories/<id> etc.", "issue": "Non-existent pk returns HTTP 500 (Model.DoesNotExist raised by bare .get(pk=pk)) instead of 404. Affects every detail/update/delete view.", "priority": "HIGH"},
+      {"endpoint": "POST /api/products, POST /api/requests, POST /api/stocks/transaction", "issue": "Missing/invalid payload keys raise KeyError / DoesNotExist -> HTTP 500 instead of 400. No Pydantic/serializer-level validation anywhere; views index raw JSON (data['sku'], data['warehouse_id'], data['status'], ...).", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/requests", "issue": "REQ number also derived from max(id)+1 - same collision class as distributions once any request row is deleted."},
+      {"endpoint": "POST /api/distributions/<id>/status", "issue": "No validation of allowed status values or transition order; any string is accepted and written to the DB/history."},
+      {"endpoint": "POST /api/stocks/transaction (low-stock notify) & POST /api/requests (notify admins)", "issue": "Admin recipients are selected with User.objects.filter(is_superuser=True) only, so profile-role admins / is_staff admins receive no notifications."},
+      {"endpoint": "GET /api/stocks/transactions", "issue": "Hard-coded 200-row cap and no pagination/date filter; a regular user sees all warehouses' mutation history (no per-user scoping)."},
+      {"endpoint": "config/settings.py", "issue": "SQLite file path is taken from DB_NAME (currently 'test_database'), the variable reserved for the Mongo database name; DB file is /app/backend/test_database while an empty db.sqlite3 also exists - confusing."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "RequestDetail - Buat distribusi modal", "issue": "Submitting the modal calls POST /api/distributions which returns 500; the modal stays open and no error toast/inline error is shown to the user (silent failure). Needs backend fix + error state handling.", "selector": "[data-testid=\"dist-save\"]", "priority": "CRITICAL"},
+      {"component": "Profile page (/profil)", "issue": "Form fields are rendered as <label>Text<input/></label> inside .panel, but the input styling only exists under .modal/.login-card, so inputs have border:0, no padding and sit inline with their labels ('Nama lengkapAdi Rahman', 'Emailadmin@logistipro.id'); the two password inputs are effectively invisible. Add panel form input styles.", "selector": "[data-testid=\"prof-fullname\"], [data-testid=\"pwd-current\"]", "priority": "HIGH"},
+      {"component": "Products page", "issue": "After 'Nonaktifkan', the row status still shows 'Stok rendah' instead of 'Nonaktif' (backend stock_status prioritises low_stock over active=false) and the action column then only shows 'Edit' with no 'Aktifkan' option, so a deactivated product cannot be re-activated from the UI.", "selector": "table tbody tr", "priority": "MEDIUM"},
+      {"component": "Modal (all pages)", "issue": "Escape key does not close the modal and the .modal-backdrop keeps intercepting pointer events, so after a failed submit the user (and tests) must find the Batal/close button; sidebar navigation is blocked while a modal is open.", "selector": ".modal-backdrop", "priority": "MEDIUM"},
+      {"component": "RequestDetail - Estimasi tiba", "issue": "Uses the browser-default native date input (mm/dd/yyyy, US format) instead of the shadcn calendar component, inconsistent with the Indonesian locale of the app.", "selector": "[data-testid=\"dist-eta\"]", "priority": "LOW"},
+      {"component": "Toast stack", "issue": "Toasts render over the topbar right area, covering the notification bell / user block for a few seconds.", "selector": "[data-testid=\"toast-stack\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Notifications", "issue": "After 'Tandai semua dibaca' the page shows '0 belum dibaca' but the topbar bell badge still shows the old count (10) until a full reload - badge state not refreshed after mark-all.", "affected_selectors": ["[data-testid=\"mark-all-page\"]", "[data-testid=\"notification-count\"]"]},
+      {"flow": "Products create", "issue": "Newly created product is not visible in the table right after saving (only after a search/refresh) - list refetch after POST appears unreliable, while edit does refresh correctly.", "affected_selectors": ["[data-testid=\"product-save-button\"]"]},
+      {"flow": "Distribution status update", "issue": "'Set: Tiba' updates the status and timeline correctly, but no success toast is emitted (toast stack empty) - inconsistent with other actions.", "affected_selectors": ["[data-testid=\"dist-timeline\"]"]},
+      {"flow": "App bootstrap", "issue": "Every cold load fires GET /api/auth/me twice and both return 401 for anonymous visitors, logging console errors (duplicate refresh call in AuthContext).", "affected_selectors": []}
+    ],
+    "design_issues": [
+      {"screen": "Profil", "issues": ["Unstyled/borderless inputs, labels glued to values, password panel looks empty (see ui_bugs)"]},
+      {"screen": "Dashboard", "issues": ["Recharts logs repeated 'width(-1) and height(-1) of chart should be greater than 0' warnings on mount - chart container has no min-height"]},
+      {"screen": "Request create modal", "issues": ["React dev warning 'In HTML, <span> cannot be a child of <option>' (hydration error) triggered by the product/warehouse <option> content", "Item rows have no dedicated data-testid (req-item-product / req-item-qty), tests must rely on select index"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "FIX BLOCKER: distribution number generation in views.distributions_api - derive from max existing number (not max id) or use a dedicated counter, add retry + try/except IntegrityError -> 409/400. Existing seeded numbers DST-2026-0003 (id=1) / DST-2026-0002 (id=2) currently collide.",
+    "Apply the same sequence fix to ItemRequest.number.",
+    "Replace bare Model.objects.get(pk=pk) with get_object_or_404 style handling (return 404 JSON) in all detail views.",
+    "Validate request bodies (required keys, types, allowed status values) and return 400 instead of 500 on KeyError/DoesNotExist.",
+    "Show an error toast / inline error when POST /api/distributions (and other mutations) fail.",
+    "Add input styling for form fields inside .panel (Profile page) so labels/inputs render correctly.",
+    "Refresh the topbar unread badge after 'Tandai semua dibaca'; refresh product list after create.",
+    "Product stock_status should report 'Nonaktif' for inactive products and the UI should offer 'Aktifkan'.",
+    "Allow Escape / backdrop click to close modals.",
+    "Notify admins by role (profile.role == 'admin' or is_staff), not only is_superuser."
+  ],
+  "critical_code_review_comments": [
+    "views.py is 898 lines and mixes auth, CRUD, workflow, reporting and PDF/Excel export - split into modules (auth, master_data, workflow, reports) per the 700-line guideline.",
+    "Number generation using max(id)+1 is not collision-safe and already broke distributions in production data.",
+    "No serializer/validation layer: every endpoint indexes raw JSON (data['sku'], data['status']) and will 500 on malformed input.",
+    "Detail views raise DoesNotExist unhandled -> 500 for any bad id, including ids typed in the URL by users.",
+    "distribution_status_api accepts arbitrary status strings and performs no state-machine validation, so 'completed' -> 'prepared' backwards transitions are possible.",
+    "Frontend CSS relies on .modal/.login-card scoping for input styling; the Profile page reuses <label><input> outside those scopes and silently loses all styling - extract a shared .field/.form-control class."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "94% (46/49 pytest cases)", "frontend": "85% (all pages/CRUD/exports/guards work; distribution creation flow blocked by backend 500, profile form styling broken)"},
+  "seed_data_creation": "Created TEST_* data via API/UI: several TEST products (TEST-UI-001/002, TEST-xxxxxx), categories (TEST UI Kategori, TEST_Kat_*), warehouses (TESTUI1/TESTUI2, TW*), recipients (TESTUIR1/2, TR*), vehicle 'TEST UI 99', requests REQ-2026-0005..0013 (destinations start with 'TEST'), stock transactions noted 'TEST UI masuk', and temporary users test_*@logistipro.id. Seeded demo accounts untouched (admin/user/budi passwords unchanged).",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@logistipro.id/admin123 (admin), user@logistipro.id/user123, budi@logistipro.id/user123 - all verified working; /app/memory/test_credentials.md is accurate.",
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests/backend_test.py -v` (pytest.ini already sets -n 2 --dist loadscope). Known failures: TestWorkflow::test_full_happy_path (blocked by POST /api/distributions 500), TestEdgeCases::test_nonexistent_resources, TestEdgeCases::test_invalid_payloads. Everything else passes. After the distribution-number fix, re-run the happy path (it also validates vehicle status returning to 'available', request status -> completed, and tracking exclusion of completed distributions) and re-test the UI flow /permintaan/<id> -> create-distribution -> dist-timeline. Note SQLite DB file is /app/backend/test_database (from DB_NAME env), not db.sqlite3.",
+  "rca_of_the_issue": "Distribution.number is generated as f\"DST-{year}-{(last.id+1):04d}\" using the row with the highest id. The demo seed inserted distributions whose numeric suffixes do not match their ids (id=1 -> DST-2026-0003, id=2 -> DST-2026-0002), so max(id)+1 = 3 yields DST-2026-0003, which already exists, and the UNIQUE constraint on `number` raises IntegrityError -> 500 (confirmed in /var/log/supervisor/backend.err.log). Reproduction: login as admin, approve any pending request, POST /api/distributions {request_id, vehicle_id} -> 500 every time. Mitigation: compute the next suffix from the max existing number suffix (or a sequence table) and retry on IntegrityError."
+}
